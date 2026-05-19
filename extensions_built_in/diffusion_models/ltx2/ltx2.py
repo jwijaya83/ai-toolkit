@@ -562,46 +562,58 @@ class LTX2Model(BaseModel):
         self.pipeline.vae.requires_grad_(False)
 
         if self.model_config.low_vram:
-            self.pipeline.vae.tile_sample_min_num_frames = 64
-            self.pipeline.vae.tile_sample_stride_num_frames = 16
-            # they check the wrong flat on encode currently so set both to future proof
+            # Spatial + temporal tiling. Encoding 512x512xN frames in one shot
+            # is the dominant VRAM peak during latent caching; tiling keeps the
+            # ceiling low enough to fit 16GB.
+            self.pipeline.vae.enable_tiling(
+                tile_sample_min_height=256,
+                tile_sample_min_width=256,
+                tile_sample_stride_height=224,
+                tile_sample_stride_width=224,
+                tile_sample_min_num_frames=16,
+                tile_sample_stride_num_frames=8,
+            )
+            # they check the wrong flag on encode currently so set both to future proof
             self.pipeline.vae.use_framewise_decoding = True
             self.pipeline.vae.use_framewise_encoding = True
 
-        image_list = [image.to(device, dtype=dtype) for image in image_list]
+        try:
+            image_list = [image.to(device, dtype=dtype) for image in image_list]
 
-        # Normalize shapes
-        norm_images = []
-        for image in image_list:
-            if image.ndim == 3:
-                # (C, H, W) -> (C, 1, H, W)
-                norm_images.append(image.unsqueeze(1))
-            elif image.ndim == 4:
-                # (T, C, H, W) -> (C, T, H, W)
-                norm_images.append(image.permute(1, 0, 2, 3))
-            else:
-                raise ValueError(f"Invalid image shape: {image.shape}")
+            # Normalize shapes
+            norm_images = []
+            for image in image_list:
+                if image.ndim == 3:
+                    # (C, H, W) -> (C, 1, H, W)
+                    norm_images.append(image.unsqueeze(1))
+                elif image.ndim == 4:
+                    # (T, C, H, W) -> (C, T, H, W)
+                    norm_images.append(image.permute(1, 0, 2, 3))
+                else:
+                    raise ValueError(f"Invalid image shape: {image.shape}")
 
-        # Stack to (B, C, T, H, W)
-        images = torch.stack(norm_images)
+            # Stack to (B, C, T, H, W)
+            images = torch.stack(norm_images)
 
-        latents = self.pipeline.vae.encode(images).latent_dist.sample()
+            latents = self.pipeline.vae.encode(images).latent_dist.sample()
 
-        # Normalize latents across the channel dimension [B, C, F, H, W]
-        scaling_factor = 1.0
-        latents_mean = self.pipeline.vae.latents_mean.view(1, -1, 1, 1, 1).to(
-            latents.device, latents.dtype
-        )
-        latents_std = self.pipeline.vae.latents_std.view(1, -1, 1, 1, 1).to(
-            latents.device, latents.dtype
-        )
-        latents = (latents - latents_mean) * scaling_factor / latents_std
+            # Normalize latents across the channel dimension [B, C, F, H, W]
+            scaling_factor = 1.0
+            latents_mean = self.pipeline.vae.latents_mean.view(1, -1, 1, 1, 1).to(
+                latents.device, latents.dtype
+            )
+            latents_std = self.pipeline.vae.latents_std.view(1, -1, 1, 1, 1).to(
+                latents.device, latents.dtype
+            )
+            latents = (latents - latents_mean) * scaling_factor / latents_std
 
-        if self.model_config.low_vram:
-            self.pipeline.vae.use_framewise_decoding = False
-            self.pipeline.vae.use_framewise_encoding = False
-
-        return latents.to(device, dtype=dtype)
+            return latents.to(device, dtype=dtype)
+        finally:
+            if self.model_config.low_vram:
+                self.pipeline.vae.disable_tiling()
+                self.pipeline.vae.use_framewise_decoding = False
+                self.pipeline.vae.use_framewise_encoding = False
+                flush()
 
     def get_generation_pipeline(self):
         scheduler = LTX2Model.get_train_scheduler()
@@ -773,50 +785,58 @@ class LTX2Model(BaseModel):
         output_tensor = None
         audio_num_frames = None
 
-        # do them seperatly for now
-        for audio_data in audio_data_list:
-            waveform = audio_data["waveform"].to(
-                device=self.device_torch, dtype=torch.float32
-            )
-            sample_rate = audio_data["sample_rate"]
+        try:
+            # do them seperatly for now
+            for audio_data in audio_data_list:
+                waveform = audio_data["waveform"].to(
+                    device=self.device_torch, dtype=torch.float32
+                )
+                sample_rate = audio_data["sample_rate"]
 
-            # Add batch dimension if needed: [channels, samples] -> [batch, channels, samples]
-            if waveform.dim() == 2:
-                waveform = waveform.unsqueeze(0)
+                # Add batch dimension if needed: [channels, samples] -> [batch, channels, samples]
+                if waveform.dim() == 2:
+                    waveform = waveform.unsqueeze(0)
 
-            if waveform.shape[1] == 1:
-                # make sure it is stereo
-                waveform = waveform.repeat(1, 2, 1)
+                if waveform.shape[1] == 1:
+                    # make sure it is stereo
+                    waveform = waveform.repeat(1, 2, 1)
 
-            # Convert waveform to mel spectrogram using AudioProcessor
-            mel_spectrogram = self.audio_processor.waveform_to_mel(
-                waveform, waveform_sample_rate=sample_rate
-            )
-            mel_spectrogram = mel_spectrogram.to(dtype=self.torch_dtype)
+                # Convert waveform to mel spectrogram using AudioProcessor
+                mel_spectrogram = self.audio_processor.waveform_to_mel(
+                    waveform, waveform_sample_rate=sample_rate
+                )
+                mel_spectrogram = mel_spectrogram.to(dtype=self.torch_dtype)
 
-            # Encode mel spectrogram to latents
-            latents = self.pipeline.audio_vae.encode(
-                mel_spectrogram.to(self.device_torch, dtype=self.torch_dtype)
-            ).latent_dist.sample()
+                # Encode mel spectrogram to latents
+                latents = self.pipeline.audio_vae.encode(
+                    mel_spectrogram.to(self.device_torch, dtype=self.torch_dtype)
+                ).latent_dist.sample()
 
-            if audio_num_frames is None:
-                audio_num_frames = latents.shape[2]  # (latents is [B, C, T, F])
+                if audio_num_frames is None:
+                    audio_num_frames = latents.shape[2]  # (latents is [B, C, T, F])
 
-            packed_latents = self.pipeline._pack_audio_latents(
-                latents,
-                # patch_size=self.pipeline.transformer.config.audio_patch_size,
-                # patch_size_t=self.pipeline.transformer.config.audio_patch_size_t,
-            )  # [B, L, C * M]
-            if output_tensor is None:
-                output_tensor = packed_latents
-            else:
-                output_tensor = torch.cat([output_tensor, packed_latents], dim=0)
+                packed_latents = self.pipeline._pack_audio_latents(
+                    latents,
+                    # patch_size=self.pipeline.transformer.config.audio_patch_size,
+                    # patch_size_t=self.pipeline.transformer.config.audio_patch_size_t,
+                )  # [B, L, C * M]
+                if output_tensor is None:
+                    output_tensor = packed_latents
+                else:
+                    output_tensor = torch.cat([output_tensor, packed_latents], dim=0)
 
-        # normalize latents, opposite of (latents * latents_std) + latents_mean
-        latents_mean = self.pipeline.audio_vae.latents_mean
-        latents_std = self.pipeline.audio_vae.latents_std
-        output_tensor = (output_tensor - latents_mean) / latents_std
-        return output_tensor
+            # normalize latents, opposite of (latents * latents_std) + latents_mean
+            latents_mean = self.pipeline.audio_vae.latents_mean
+            latents_std = self.pipeline.audio_vae.latents_std
+            output_tensor = (output_tensor - latents_mean) / latents_std
+            return output_tensor
+        finally:
+            # ComboVae.device only reflects the video VAE, so the trainer's
+            # device-state restore never moves the audio VAE back. Release it
+            # explicitly so it doesn't squat on VRAM during the train step.
+            if self.model_config.low_vram:
+                self.pipeline.audio_vae.to("cpu")
+                flush()
 
     def pad_embeds(self, embeds: PromptEmbeds):
         # ltx-2 connector requires 1024 tokens for good results. Any smaller and it degrades.
@@ -1078,11 +1098,17 @@ class LTX2Model(BaseModel):
             attention_mask=prompt_attention_mask,
             output_hidden_states=True,
         )
-        text_encoder_hidden_states = text_encoder_outputs.hidden_states
-        text_encoder_hidden_states = torch.stack(text_encoder_hidden_states, dim=-1)
-        prompt_embeds = text_encoder_hidden_states.flatten(2, 3).to(
-            dtype=self.torch_dtype
-        )  # Pack to 3D
+        # Gemma-3-12B emits ~49 hidden states; stacking + flattening them on GPU
+        # creates a large transient while the 12B encoder is still resident.
+        # Do it on CPU (these get cached to disk anyway) to lower the peak.
+        text_encoder_hidden_states = torch.stack(
+            [h.to("cpu") for h in text_encoder_outputs.hidden_states], dim=-1
+        )
+        prompt_embeds = (
+            text_encoder_hidden_states.flatten(2, 3)  # Pack to 3D
+            .to(dtype=self.torch_dtype)
+            .to(device)
+        )
 
         # duplicate text embeddings for each generation per prompt, using mps friendly method
         _, seq_len, _ = prompt_embeds.shape
