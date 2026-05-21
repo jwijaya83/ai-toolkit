@@ -171,6 +171,7 @@ cython_debug/
 /venv.*
 /config/*
 !/config/examples
+!/config/sets
 !/config/_PUT_YOUR_CONFIGS_HERE).txt
 /output/*
 !/output/.gitkeep

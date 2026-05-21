@@ -1,13 +1,13 @@
 ---
 job: "extension"
 config:
-  name: "lanalang"
+  name: "daenerys"
   process:
     - type: "diffusion_trainer"
       training_folder: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/output"
       sqlite_db_path: "./aitk_db.db"
       device: "cuda"
-      trigger_word: "ohwx woman"
+      trigger_word: "ozwx young woman"
       performance_log_every: 10
       network:
         type: "lora"
@@ -22,11 +22,11 @@ config:
       save:
         dtype: "bf16"
         save_every: 250
-        max_step_saves_to_keep: 4
+        max_step_saves_to_keep: 20
         save_format: "safetensors"
         push_to_hub: false
       datasets:
-        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/videos"
+        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/daenerys"
           mask_path: null
           mask_min_value: 0.1
           default_caption: ""
@@ -36,7 +36,7 @@ config:
           is_reg: false
           network_weight: 1
           resolution:
-            - 512
+            - 640
           controls: []
           shrink_video_to_frames: true
           num_frames: 49
@@ -50,7 +50,7 @@ config:
       train:
         batch_size: 1
         bypass_guidance_embedding: false
-        steps: 3000
+        steps: 5000
         gradient_accumulation: 1
         train_unet: true
         train_text_encoder: false
@@ -77,7 +77,7 @@ config:
         switch_boundary_every: 1
         loss_type: "mse"
         audio_loss_multiplier: 1
-        do_differential_guidance: false
+        do_differential_guidance: true
         differential_guidance_scale: 3
       logging:
         log_every: 1
@@ -96,19 +96,19 @@ config:
         layer_offloading_transformer_percent: 1
       sample:
         sampler: "flowmatch"
-        sample_every: 250
+        sample_every: 500
         width: 512
         height: 512
         samples:
-          - prompt: "ohwx woman close up shot wearing casual shirt. She is looking at the camera and saying \"Hey, How are you ? Would you like to come play with me ?\""
-          - prompt: "ohwx woman close up shot smiling and looking shy. She twirls her hair while saying \"can you come here ?\""
-          - prompt: "ohwx woman close up shot looking surprised . She wears bikini with the beach on the background. She says \"No way ! how did you get here ?\""
+          - prompt: "ohwx young woman close up shot wearing casual shirt. She is looking at the camera and saying \"Hey, How are you ? Would you like to come play with me ?\""
+          - prompt: "ohwx young woman close up shot smiling and looking shy. She twirls her hair while saying \"can you come here ?\""
+          - prompt: "ohwx young woman close up shot looking surprised . She wears bikini with the beach on the background. She says \"No way ! how did you get here ?\""
         neg: ""
         seed: 42
         walk_seed: true
         guidance_scale: 4
         sample_steps: 30
-        num_frames: 49
+        num_frames: 121
         fps: 24
 meta:
   name: "[name]"
