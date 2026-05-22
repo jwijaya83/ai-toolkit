@@ -7,7 +7,7 @@ config:
       training_folder: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/output"
       sqlite_db_path: "./aitk_db.db"
       device: "cuda"
-      trigger_word: "ozwx young woman"
+      trigger_word: "zxnewn man"
       performance_log_every: 1000
       network:
         type: "lora"
@@ -26,7 +26,7 @@ config:
         save_format: "safetensors"
         push_to_hub: false
       datasets:
-        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/daenerys"
+        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/zhanglinghe"
           mask_path: null
           mask_min_value: 0.1
           default_caption: ""
