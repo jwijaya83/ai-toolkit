@@ -1,13 +1,13 @@
 ---
 job: "extension"
 config:
-  name: "daenerys"
+  name: "zhanglinghe_zxwoz_man"
   process:
     - type: "diffusion_trainer"
       training_folder: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/output"
       sqlite_db_path: "./aitk_db.db"
       device: "cuda"
-      trigger_word: "zxnewn man"
+      trigger_word: "zxwoz man"
       performance_log_every: 1000
       network:
         type: "lora"
@@ -78,7 +78,7 @@ config:
         loss_type: "mse"
         audio_loss_multiplier: 1
         do_differential_guidance: true
-        differential_guidance_scale: 3
+        differential_guidance_scale: 2
       logging:
         log_every: 1
         use_ui_logger: true

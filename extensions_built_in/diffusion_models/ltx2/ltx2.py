@@ -565,14 +565,14 @@ class LTX2Model(BaseModel):
             # Spatial + temporal tiling. Encoding 512x512xN frames in one shot
             # is the dominant VRAM peak during latent caching; tiling keeps the
             # ceiling low enough to fit 16GB.
-            self.pipeline.vae.enable_tiling(
-                tile_sample_min_height=256,
-                tile_sample_min_width=256,
-                tile_sample_stride_height=224,
-                tile_sample_stride_width=224,
-                tile_sample_min_num_frames=16,
-                tile_sample_stride_num_frames=8,
-            )
+            # self.pipeline.vae.enable_tiling(
+            #     tile_sample_min_height=256,
+            #     tile_sample_min_width=256,
+            #     tile_sample_stride_height=224,
+            #     tile_sample_stride_width=224,
+            #     tile_sample_min_num_frames=16,
+            #     tile_sample_stride_num_frames=8,
+            # )
             # they check the wrong flag on encode currently so set both to future proof
             self.pipeline.vae.use_framewise_decoding = True
             self.pipeline.vae.use_framewise_encoding = True
