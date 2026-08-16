@@ -33,7 +33,7 @@ config:
           caption_ext: "txt"
           caption_dropout_rate: 0.00
           cache_latents_to_disk: true
-          is_reg: true
+          is_reg: false
           network_weight: 1
           resolution:
             - 640
