@@ -1,13 +1,13 @@
 ---
 job: "extension"
 config:
-  name: "daenerys"
+  name: "jamesdean_jxzmex_man"
   process:
     - type: "diffusion_trainer"
       training_folder: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/output"
       sqlite_db_path: "./aitk_db.db"
       device: "cuda"
-      trigger_word: "ozwx young woman"
+      trigger_word: "jxzmex man"
       performance_log_every: 1000
       network:
         type: "lora"
@@ -26,12 +26,12 @@ config:
         save_format: "safetensors"
         push_to_hub: false
       datasets:
-        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/daenerys"
+        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/jamesdean"
           mask_path: null
           mask_min_value: 0.1
           default_caption: ""
           caption_ext: "txt"
-          caption_dropout_rate: 0.05
+          caption_dropout_rate: 0.0
           cache_latents_to_disk: true
           is_reg: false
           network_weight: 1
@@ -50,7 +50,7 @@ config:
       train:
         batch_size: 1
         bypass_guidance_embedding: false
-        steps: 5000
+        steps: 4000
         gradient_accumulation: 1
         train_unet: true
         train_text_encoder: false
@@ -63,7 +63,7 @@ config:
           weight_decay: 0.0001
         unload_text_encoder: true
         cache_text_embeddings: true
-        lr: 0.00003
+        lr: 0.00005
         ema_config:
           use_ema: false
           ema_decay: 0.99
