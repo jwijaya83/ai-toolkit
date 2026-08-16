@@ -70,7 +70,9 @@ DO_NOT_TRAIN_WEIGHTS = [
     "refiner_unet_time_embedding.linear_2.weight",
 ]
 
-DeviceStatePreset = Literal['cache_latents', 'generate']
+DeviceStatePreset = Literal[
+    'cache_latents', 'cache_clip', 'cache_text_encoder', 'unload', 'generate'
+]
 
 
 class BlankNetwork:
@@ -1563,6 +1565,13 @@ class BaseModel:
             active_modules = ['vae']
         if device_state_preset in ['cache_clip']:
             active_modules = ['clip']
+        if device_state_preset in ['cache_text_encoder']:
+            # only the text encoder. The vae is the big one to get rid of here: it was
+            # just used to cache latents and is dead weight while a (potentially very
+            # large) text encoder is resident
+            active_modules = ['text_encoder']
+        if device_state_preset in ['unload']:
+            active_modules = []
         if device_state_preset in ['generate']:
             active_modules = ['vae', 'unet',
                               'text_encoder', 'adapter', 'refiner_unet']

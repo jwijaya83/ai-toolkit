@@ -2267,11 +2267,24 @@ class TextEmbeddingCachingMixin:
             super().__init__(**kwargs)
         self.is_caching_text_embeddings = self.dataset_config.cache_text_embeddings
 
+    @torch.no_grad()
     def cache_text_embeddings(self: 'AiToolkitDataset'):
         with accelerator.main_process_first():
             print_acc(f"Caching text_embeddings for {self.dataset_path}")
             print_acc(" - Saving text embeddings to disk")
-            
+
+            # the latent cache stage that just ran restores the vae to wherever it was
+            # before it started, which for most models is the gpu. It is dead weight from
+            # here on, so drop it before a (potentially very large) text encoder comes in
+            # on top of it. Done up front rather than inside the loop below so it also
+            # happens when every embedding is already cached, and unconditionally (a no-op
+            # when already there) since a combined vae only reports its primary sub-vae's
+            # device
+            vae = getattr(self.sd, 'vae', None)
+            if vae is not None:
+                vae.to('cpu')
+            flush()
+
             did_move = False
 
             # use tqdm to show progress

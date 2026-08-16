@@ -98,7 +98,9 @@ DO_NOT_TRAIN_WEIGHTS = [
     "refiner_unet_time_embedding.linear_2.weight",
 ]
 
-DeviceStatePreset = Literal['cache_latents', 'generate']
+DeviceStatePreset = Literal[
+    'cache_latents', 'cache_clip', 'cache_text_encoder', 'unload', 'generate'
+]
 
 
 class BlankNetwork:
