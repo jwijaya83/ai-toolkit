@@ -101,6 +101,61 @@ not a leak in the caching pipeline.
 Append new entries at the top. Format: date — symptom — root cause — change — how it
 was verified.
 
+## 2026-08-16 — LTX 2.5 CUDA OOM immediately after the first sample
+
+**Symptom.** `songHye_sxhonzkyx_woman` ran cleanly to step 250 (~15773/16376 MiB,
+`low_vram: true`, `layer_offloading: true` at 100% for transformer and text
+encoder), saved its checkpoint, generated its first sample (`skip_first_sample:
+true` had suppressed step 0's), and then hit repeated allocator OOM warnings for a
+suspiciously round 314572800-byte (300 MB) allocation right after "Generating
+Samples: 100%" — i.e. after the sample had already finished rendering, not during
+it.
+
+**Root cause.** `BaseModel.generate_images()` (`toolkit/models/base_model.py`)
+saves and restores device placement only for `vae`, `unet`/`transformer`,
+`text_encoder`, `adapter`, and `refiner_unet` — see `save_device_state()` /
+`set_device_state()` / `restore_device_state()`. LTX 2.5's generation pipeline
+(`extensions_built_in/diffusion_models/ltx2/ltx2.py`,
+`LTX2Model.generate_single_image()`) has two components outside that list:
+`connectors` and `vocoder`. Both get pulled fully onto the GPU by
+`pipeline = pipeline.to(self.device_torch)` for every sample.
+
+- `connectors` (4.33 GB) turned out to be a non-issue: the training forward pass
+  (`if self.pipeline.connectors.device != self.transformer.device: ...to(...)`,
+  around line 1048) already keeps it GPU-resident on every step, so sampling
+  doesn't change its steady-state footprint.
+- `vocoder` (0.26 GB) is **only** touched during sample generation (waveform
+  synthesis) — nothing in the training step ever references it, so nothing ever
+  moves it back to CPU after `pipeline.to()` puts it on the GPU. Before the first
+  sample it had never been loaded onto the GPU at all, so this is a fresh ~0.26 GB
+  of permanent VRAM growth triggered by exactly the event in the symptom (first
+  sample after `skip_first_sample`). With training already within ~600 MB of the
+  16 GB ceiling, that's enough on its own to explain a subsequent 300 MB
+  allocation failing on the very next step.
+
+**Change.** `LTX2Model.generate_single_image()` — right after the pipeline call
+(same spot that already resets VAE tiling for `low_vram`), explicitly move
+`self.pipeline.vocoder` back to CPU and flush. Mirrors the existing pattern in
+`encode_audio()`'s `finally` block, which does the same thing for the audio VAE
+for the same underlying reason (component not covered by the base class's device
+state tracking).
+
+**Verified.** Static: read-traced `pipeline.to()` → `DiffusionPipeline.to()` →
+per-component `.to(device)`, confirmed `vocoder` isn't wrapped by
+`MemoryManager.attach()` (so the move is a full, not partial, residency) and isn't
+referenced anywhere in the training-step forward pass. Not yet confirmed with a
+live run to step 250+ — checkpoint and optimizer state for step 250 are already on
+disk, so resuming with `-r` is the next real test.
+
+**Ruled out:** the `OstrisLinear` "rescue path" that permanently strands a
+non-memory-managed quantized layer on GPU (`toolkit/util/ostris_quant.py`) — both
+`layer_offloading_transformer_percent` and `..._text_encoder_percent` are `1`, so
+every `OstrisLinear` layer should be under `MemoryManager`, and the sample
+finished without printing the associated warning. `self.unet.to(self.device_torch,
+dtype=self.torch_dtype)` at the end of `generate_images()` — intercepted by
+`memory_managed_to` for an attached module, so it's a partial (safe) move, not a
+full load.
+
 ## 2026-08-15 — LTX 2.5 CUDA OOM at the start of text-embedding caching
 
 **Symptom.** Training crashed immediately after latent caching finished:

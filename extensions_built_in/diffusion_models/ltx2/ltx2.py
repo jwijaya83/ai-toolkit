@@ -770,6 +770,17 @@ class LTX2Model(BaseModel):
             # Restore no tiling
             # pipeline.vae.use_tiling = False
             self.pipeline.vae.use_framewise_decoding = False
+            # vocoder is only ever used here (waveform synth for the sample's
+            # audio track) and, unlike vae/unet/text_encoder/adapter, it isn't
+            # tracked by BaseModel.save_device_state()/restore_device_state().
+            # pipeline.to(self.device_torch) above pulls it fully onto the GPU
+            # for every sample and nothing else ever moves it back, so it
+            # squats there (~0.26GB) for the rest of training after the first
+            # sample - fatal when training is already this close to the VRAM
+            # ceiling. Release it explicitly, same as encode_audio() already
+            # does for the audio VAE.
+            self.pipeline.vocoder.to("cpu")
+            flush()
 
         if is_video:
             # redurn as a dict, we will handle it with an override function
