@@ -51,7 +51,7 @@ config:
       train:
         batch_size: 1
         bypass_guidance_embedding: false
-        steps: 2000
+        steps: 3500
         gradient_accumulation: 1
         train_unet: true
         train_text_encoder: false
@@ -64,13 +64,13 @@ config:
           weight_decay: 0.0001
         unload_text_encoder: true
         cache_text_embeddings: true
-        lr: 0.0001
+        lr: 0.000075
         ema_config:
           use_ema: false
           ema_decay: 0.99
         skip_first_sample: true
         force_first_sample: false
-        disable_sampling: false
+        disable_sampling: true
         dtype: "bf16"
         diff_output_preservation: false
         diff_output_preservation_multiplier: 1
