@@ -1,16 +1,16 @@
 ---
 job: "extension"
 config:
-  name: "my_first_lora_v1"
+  name: "songHye_songkyexho_young_woman" #Song Hye
   process:
     - type: "diffusion_trainer"
       training_folder: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/output"
       sqlite_db_path: "./aitk_db.db"
       device: "cuda"
-      trigger_word: null
-      performance_log_every: 10
+      trigger_word: songkyexho young woman
+      performance_log_every: 1000
       network:
-        type: "lokr"
+        type: "lora"
         linear: 32
         linear_alpha: 32
         conv: 16
@@ -40,18 +40,18 @@ config:
             - 640
           controls: []
           shrink_video_to_frames: true
-          num_frames: 49
+          num_frames: 89
           flip_x: false
           flip_y: false
           num_repeats: 1
           do_i2v: false
           do_audio: true
-          fps: 24
+          fps: 30
           auto_frame_count: false
       train:
         batch_size: 1
         bypass_guidance_embedding: false
-        steps: 3000
+        steps: 3500
         gradient_accumulation: 1
         train_unet: true
         train_text_encoder: false
@@ -64,7 +64,7 @@ config:
           weight_decay: 0.0001
         unload_text_encoder: true
         cache_text_embeddings: true
-        lr: 0.00005
+        lr: 0.0001
         ema_config:
           use_ema: false
           ema_decay: 0.99
@@ -101,22 +101,14 @@ config:
         width: 512
         height: 512
         samples:
-          - prompt: "woman with red hair, playing chess at the park, bomb going off in the background"
-          - prompt: "a woman holding a coffee cup, in a beanie, sitting at a cafe"
-          - prompt: "a horse is a DJ at a night club, fish eye lens, smoke machine, lazer lights, holding a martini"
-          - prompt: "a man showing off his cool new t shirt at the beach, a shark is jumping out of the water in the background"
-          - prompt: "a bear building a log cabin in the snow covered mountains"
-          - prompt: "woman playing the guitar, on stage, singing a song, laser lights, punk rocker"
-          - prompt: "hipster man with a beard, building a chair, in a wood shop"
-          - prompt: "photo of a man, white background, medium shot, modeling clothing, studio lighting, white backdrop"
-          - prompt: "a man holding a sign that says, 'this is a sign'"
-          - prompt: "a bulldog, in a post apocalyptic world, with a shotgun, in a leather jacket, in a desert, with a motorcycle"
+          - prompt: "songkyexho young woman a gorgeous korean with fair skin holding a coffee cup, sitting at a cafe. She said 'I love the smell of coffee in the morning'"
+          - prompt: "songkyexho young woman holding a coffee cup, sitting at a cafe. She said 'I love the smell of coffee in the morning'"
         neg: ""
         seed: 42
         walk_seed: true
-        guidance_scale: 4
-        sample_steps: 30
-        num_frames: 121
+        guidance_scale: 1
+        sample_steps: 20
+        num_frames: 73
         fps: 24
 meta:
   name: "[name]"

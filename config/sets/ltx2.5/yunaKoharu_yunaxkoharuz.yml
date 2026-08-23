@@ -1,13 +1,13 @@
 ---
 job: "extension"
 config:
-  name: "songHye_songkyexho_young_woman" #Song Hye
+  name: "yunaKoharu_yunaxkoharuz_young_woman" #Yuna Koharu
   process:
     - type: "diffusion_trainer"
       training_folder: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/output"
       sqlite_db_path: "./aitk_db.db"
       device: "cuda"
-      trigger_word: songkyexho young woman
+      trigger_word: yunaxkoharuz young woman
       performance_log_every: 1000
       network:
         type: "lora"
@@ -22,11 +22,11 @@ config:
       save:
         dtype: "bf16"
         save_every: 250
-        max_step_saves_to_keep: 20
+        max_step_saves_to_keep: 5
         save_format: "safetensors"
         push_to_hub: false
       datasets:
-        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/ltx25/songHye/gold"
+        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/ltx25/yunaKoharu/gold"
           mask_path: null
           mask_min_value: 0.1
           default_caption: ""
@@ -36,11 +36,11 @@ config:
           is_reg: false
           network_weight: 1
           resolution:
-            - 640
-            - 640
+            - 768
+            - 768
           controls: []
           shrink_video_to_frames: true
-          num_frames: 89
+          num_frames: 65
           flip_x: false
           flip_y: false
           num_repeats: 1
