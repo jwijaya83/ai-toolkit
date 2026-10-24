@@ -20,6 +20,8 @@ import math
 from dataclasses import dataclass
 
 import torch
+
+from toolkit.models.v2._mixin import OstrisModelMixin
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
@@ -29,7 +31,11 @@ from torch.utils.checkpoint import checkpoint
 
 
 def rope(pos: Tensor, dim: int, theta: float = 1e4, ntk: float = 1.0) -> Tensor:
-    scale = torch.arange(0, dim, 2, dtype=torch.float64, device=pos.device) / dim
+    # MPS has no float64
+    dt = torch.float32 if pos.device.type == "mps" else torch.float64
+    if dt is torch.float32:
+        pos = pos.to(dt)
+    scale = torch.arange(0, dim, 2, dtype=dt, device=pos.device) / dim
     omega = 1.0 / ((theta * ntk) ** scale)
     out = torch.einsum("...n,d->...nd", pos, omega)
     out = torch.stack(
@@ -118,6 +124,11 @@ class SingleMMDiTConfig:
     txtlayers: int = 1
     txtheads: int = 20
     txtkvheads: int = 20
+
+    @property
+    def patch_size(self) -> int:
+        # trainer probes config.patch_size for the dynamic-shift token count
+        return self.patch
 
 
 class SimpleModulation(torch.nn.Module):
@@ -408,7 +419,15 @@ class SingleStreamBlock(nn.Module):
         return x
 
 
-class SingleStreamDiT(nn.Module):
+class SingleStreamDiT(nn.Module, OstrisModelMixin):
+    def get_offload_ignore_modules(self):
+        # modulation modules hold tiny live state the offloader must not page
+        return [
+            module
+            for module in self.modules()
+            if isinstance(module, (SimpleModulation, DoubleSharedModulation))
+        ]
+
     def __init__(self, config: SingleMMDiTConfig):
         super().__init__()
         self.config = config
