@@ -101,6 +101,72 @@ not a leak in the caching pipeline.
 Append new entries at the top. Format: date — symptom — root cause — change — how it
 was verified.
 
+## 2026-10-31 — LTX 2.5 OOM with `diff_output_preservation: true`
+
+**Symptom.** `alinaSvere_zlxny` (768×768×65f + audio, 16 GB card) aborted after 3 OOMs
+in a row with DOP on, even with the split backward from the 2026-10-29 entry. Without
+DOP the same size fits, but it still hit an occasional OOM skip.
+
+**Root cause.** Measured per phase. All failures were in the preservation backward,
+which started ~2 GB higher than the main one, for two reasons:
+1. The main pass's LoRA `.grad` buffers (~1.7 GB) stayed on the GPU during the
+   preservation pass. Splitting the backward frees activations, not grads.
+2. `LTX2Model.pad_embeds()` mutated the caller's `PromptEmbeds`, so `conditional_embeds`
+   kept a padded `(1, 1024, 188160)` tensor (0.36 GB) for the rest of the step, and the
+   preservation pass padded a second one.
+Also, usable VRAM tops out around 14.5 GB reserved, not 15.6, and the default allocator
+fragments badly enough to fail near that ceiling.
+
+**Change.**
+- `SDTrainer.py`: `park_grads()` / `restore_grads()` hold the main grads on CPU during
+  the preservation pass, then add them back before the optimizer step.
+- `ltx2.py`: `pad_embeds()` pads a shallow copy; `get_noise_prediction()` drops the
+  padded embeds right after the connectors. Lowers the peak for all LTX training.
+- `.env` (gitignored, per machine): `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+
+**Verified.** 30 steps of the real config on GPU (all 29 clips in one bucket):
+
+| Run | Result | OOM skips | Preservation backward peak |
+|---|---|---|---|
+| Split backward only | aborted | 3 | ~14.0 GB |
+| + grad parking | aborted | 3 | 13.4 GB |
+| + grad parking + expandable | finished | 4 | 13.4 GB |
+| + pad fix, default allocator | finished | 1 (230 allocator warnings) | 12.8 GB |
+| + pad fix + expandable | finished | **0** (0 warnings) | 12.8 GB |
+
+Max allocated 13.2 GB, ~25 s/step vs ~11 s/step without DOP.
+`testing/test_park_grads.py` asserts the split equals one backward on the sum. Not run:
+a full 3500 steps, sampling through the changed `pad_embeds()`, and DOP on MiniMax-H3.
+
+**Ruled out:** dropping `loss` / `noise_pred` after the main backward. Tried it and the
+preservation pass still started 0.49 GB high, so the spent graph is not what holds memory.
+
+## 2026-10-29 — MiniMax-H3 OOM with `diff_output_preservation: true`
+
+*Correction (2026-10-31): "peak is max(main, preservation)" below is wrong without grad
+parking, because the main grads stay resident. See the entry above.*
+
+**Symptom.** `songHye_zxqv` (16 GB card, `low_vram`, 100% layer offloading, 640×640×73f
++ audio) trains at ~14.3 GB with DOP off and OOMs with it on.
+
+**Root cause.** `SDTrainer.train_single_accumulation()` summed the losses
+(`loss = loss + preservation_loss`) and ran one backward, so the main forward's
+autograd graph and the preservation forward's graph were both resident at peak. With
+gradient checkpointing those graphs are the per-block activations of a full video
+forward — roughly double the non-DOP activation peak. The prior pass is `no_grad` with
+the LoRA off and is not the problem.
+
+**Change.** The main loss is now backwarded (and its graph freed) *before* the
+preservation forward runs; only `preservation_loss` goes through the shared backward at
+the end. Gradients accumulate in `.grad`, so the update is identical to one backward on
+the sum, but peak is max(main, preservation) instead of the sum. Return value is still
+main + preservation for logging. Applies to `blank_prompt_preservation` too.
+
+**Verified.** `py_compile` only. Not yet run on GPU — the GPU was busy with the non-DOP
+run. If a config ever feeds a grad-carrying tensor through `pred_kwargs` into both
+passes, the second backward will raise "backward through the graph a second time"
+(loud, not silent).
+
 ## 2026-08-16 — LTX 2.5 CUDA OOM immediately after the first sample
 
 **Symptom.** `songHye_sxhonzkyx_woman` ran cleanly to step 250 (~15773/16376 MiB,

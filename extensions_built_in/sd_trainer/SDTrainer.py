@@ -49,6 +49,24 @@ adapter_transforms = transforms.Compose([
 ])
 
 
+def park_grads(param_groups) -> list:
+    """Move grads to CPU and clear them on the params, freeing their VRAM."""
+    parked = []
+    for group in param_groups:
+        for param in group['params']:
+            if param.grad is not None:
+                parked.append((param, param.grad.cpu()))
+                param.grad = None
+    return parked
+
+
+def restore_grads(parked: list):
+    """Add grads from park_grads back onto whatever has accumulated since."""
+    for param, grad in parked:
+        grad = grad.to(param.device)
+        param.grad = grad if param.grad is None else param.grad.add_(grad)
+
+
 class SDTrainer(BaseSDTrainProcess):
 
     def __init__(self, process_id: int, job, config: OrderedDict, **kwargs):
@@ -1540,6 +1558,8 @@ class SDTrainer(BaseSDTrainProcess):
             self.timer.stop('preprocess_batch')
 
             is_reg = False
+            main_loss = 0.0  # set when output preservation backwards the main loss early
+            parked_grads = []  # main loss grads, held on CPU during the preservation pass
             loss_multiplier = torch.ones((noisy_latents.shape[0], 1, 1, 1), device=self.device_torch, dtype=dtype)
             for idx, file_item in enumerate(batch.file_items):
                 if file_item.is_reg:
@@ -2281,6 +2301,18 @@ class SDTrainer(BaseSDTrainProcess):
                         )
                     
                     if self.train_config.diff_output_preservation or self.train_config.blank_prompt_preservation:
+                        # backward the main loss now so its graph is freed before the preservation
+                        # forward, and park its grads on CPU so that pass gets the same headroom.
+                        # grads are summed back after, so this equals one backward on the sum, but
+                        # peak VRAM is max(main, preservation) instead of main + preservation
+                        with self.timer('backward'):
+                            main_loss = loss * loss_multiplier.mean()
+                            if torch.isfinite(main_loss):
+                                self.accelerator.backward(main_loss * accum_scale if accum_scale != 1.0 else main_loss)
+                            else:
+                                print_acc("loss is nan")
+                            main_loss = main_loss.detach()
+                            parked_grads = park_grads(self.optimizer.param_groups)
                         with torch.no_grad():
                             if self.train_config.diff_output_preservation:
                                 preservation_embeds = self.diff_output_preservation_embeds.expand_to_batch(noisy_latents.shape[0])
@@ -2317,7 +2349,8 @@ class SDTrainer(BaseSDTrainProcess):
                             self.additional_logs['loss/preservation_audio'] = audio_preservation_loss.item()
                             preservation_loss = preservation_loss + audio_preservation_loss
 
-                        loss = loss + preservation_loss
+                        # main loss is already backwarded; only preservation goes through below
+                        loss = preservation_loss
 
                 # check if nan
                 if not torch.isfinite(loss):
@@ -2337,8 +2370,9 @@ class SDTrainer(BaseSDTrainProcess):
                     # loss.backward()
                     # else:
                     self.accelerator.backward(loss * accum_scale if accum_scale != 1.0 else loss)
+                    restore_grads(parked_grads)
 
-        return loss.detach()
+        return loss.detach() + main_loss
         # flush()
 
     def hook_train_loop(self, batch: Union[DataLoaderBatchDTO, List[DataLoaderBatchDTO]]):
