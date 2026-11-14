@@ -1,3 +1,4 @@
+import copy
 from functools import partial
 import json
 import os
@@ -831,6 +832,9 @@ class LTX2Model(BaseModel):
         target_length = 1024
         current_length = embeds.text_embeds.shape[1]
         if current_length < target_length:
+            # leave the caller's embeds unpadded so it doesn't keep this tensor resident
+            # for the rest of the step (0.36 GB on LTX-2.5)
+            embeds = copy.copy(embeds)
             pad_length = target_length - current_length
             pad_tensor = torch.zeros(
                 (embeds.text_embeds.shape[0], pad_length, embeds.text_embeds.shape[2]),
@@ -1028,6 +1032,8 @@ class LTX2Model(BaseModel):
                 text_embeddings.attention_mask.to(self.torch_dtype),
                 padding_side=tokenizer_padding_side,
             )
+            # only the connectors need the padded embeds, free them before the transformer
+            text_embeddings = None
 
             # compute video and audio positional ids
             video_coords = self.transformer.rope.prepare_video_coords(
