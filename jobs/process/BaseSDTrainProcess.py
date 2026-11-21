@@ -65,6 +65,7 @@ from toolkit.config_modules import SaveConfig, LoggingConfig, SampleConfig, Netw
     GenerateImageConfig, EmbeddingConfig, DatasetConfig, preprocess_dataset_raw_config, AdapterConfig, GuidanceConfig, validate_configs, \
     DecoratorConfig
 from toolkit.logging_aitk import create_logger
+from toolkit.fizgig import apply_fizgig_recipe
 from diffusers import FluxTransformer2DModel
 from toolkit.accelerator import get_accelerator, unwrap_model
 from toolkit.print import print_acc
@@ -82,6 +83,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
 
     def __init__(self, process_id: int, job, config: OrderedDict, custom_pipeline=None):
         super().__init__(process_id, job, config)
+        # model_kwargs.fizgig: swap in Fizgig's MiniMax H3 recipe before any config is parsed
+        self.config = apply_fizgig_recipe(self.config)
         self.accelerator: Accelerator = get_accelerator()
         if self.accelerator.is_local_main_process:
             transformers.utils.logging.set_verbosity_warning()
@@ -801,6 +804,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
             self.ema = ExponentialMovingAverage(
                 params,
                 decay=self.train_config.ema_config.ema_decay,
+                use_num_updates=self.train_config.ema_config.use_num_updates,
                 use_feedback=self.train_config.ema_config.use_feedback,
                 feedback_rate=self.train_config.ema_config.feedback_rate,
                 param_multiplier=self.train_config.ema_config.param_multiplier,

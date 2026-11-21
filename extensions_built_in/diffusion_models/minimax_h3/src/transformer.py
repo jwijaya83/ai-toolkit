@@ -556,6 +556,10 @@ class MiniMaxH3Transformer(nn.Module, OstrisModelMixin):
         # PDD checkpoints only: per-sample (video, audio) head weights, each
         # (B, pdd_steps), from packing.build_pdd_weights
         pdd_weights: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        # TREAD token routing (Krause et al., arXiv 2501.04765): (start, end,
+        # keep) runs blocks start..end-1 over only the ``keep`` rows (S,) long;
+        # the other rows rejoin after block end-1 in their block-start state
+        tread: Optional[Tuple[int, int, torch.Tensor]] = None,
     ):
         """Returns (video_out (B, Nv, 96), audio_out (B, Na, 32)) — the
         data-ward velocity ``clean - noise`` for every row, in input order.
@@ -622,7 +626,17 @@ class MiniMaxH3Transformer(nn.Module, OstrisModelMixin):
                 )
             )
 
-        for block in self.blocks:
+        if tread is not None and vsa_ctx is not None:
+            tread = None  # VSA tiles the full video grid; it can't take a routed subset
+        full = None  # the full-sequence block inputs while rows are routed
+        for i, block in enumerate(self.blocks):
+            if tread is not None and i == tread[0]:
+                keep = tread[2]
+                full = (x, adaln_indices, rotary_emb, attn_mask)
+                x = x[:, keep]
+                adaln_indices = adaln_indices[:, keep]
+                rotary_emb = (rotary_emb[0][:, keep], rotary_emb[1][:, keep])
+                attn_mask = None if attn_mask is None else attn_mask[..., keep]
             if torch.is_grad_enabled() and self.gradient_checkpointing:
                 x = checkpoint(
                     block,
@@ -636,6 +650,11 @@ class MiniMaxH3Transformer(nn.Module, OstrisModelMixin):
                 )
             else:
                 x = block(x, temb, adaln_indices, rotary_emb, attn_mask, vsa_ctx)
+            if full is not None and i + 1 == min(tread[1], len(self.blocks)):
+                # rejoin: routed rows come back in their block-start state
+                x = full[0].index_copy(1, keep, x)
+                _, adaln_indices, rotary_emb, attn_mask = full
+                full = None
 
         return self.final_layer(
             x, temb, inverse, video_indices, audio_indices, pdd_weights

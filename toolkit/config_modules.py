@@ -836,6 +836,8 @@ class EMAConfig:
     def __init__(self, **kwargs):
         self.use_ema: bool = kwargs.get('use_ema', False)
         self.ema_decay: float = kwargs.get('ema_decay', 0.999)
+        # ramp the decay in as min(ema_decay, (1 + n) / (10 + n)) over the first updates
+        self.use_num_updates: bool = kwargs.get('use_num_updates', False)
         # feeds back the decay difference into the parameter
         self.use_feedback: bool = kwargs.get('use_feedback', False)
         # per-step fraction of (shadow - param) pulled back into the param; keep well below 1 - ema_decay

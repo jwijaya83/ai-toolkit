@@ -1,0 +1,131 @@
+---
+job: "extension"
+config:
+  name: "template-minimax-h3"
+  process:
+    - type: "diffusion_trainer"
+      training_folder: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/output/h3"
+      sqlite_db_path: "./aitk_db.db"
+      device: "cuda"
+      trigger_word: null
+      performance_log_every: 1000
+      network:
+        type: "lora"
+        linear: 16                      # Fizgig "rank 16, 60 epochs"; its Fast preset is 8 / 8
+        linear_alpha: 16
+        lokr_full_rank: true
+        lokr_factor: -1
+        network_kwargs:
+          # fizgig: true adds only_if_contains blocks.20. ... blocks.49. (model_kwargs.train_blocks)
+          ignore_if_contains:
+            - "adaln_proj"
+      save:
+        dtype: "bf16"
+        # Fizgig saves every epoch and you pick the best by eye: one epoch = clips + images
+        # + one still per clip (clip_stills) at batch 1. Set save_every to that count.
+        save_every: 250
+        max_step_saves_to_keep: 60      # the best window can come early and the adapter degrades late
+        save_format: "safetensors"
+        push_to_hub: false
+      datasets:
+        # A folder can mix clips and photos: photos train as single frames in their own buckets.
+        - folder_path: "/media/justin-wijaya/7d3e3892-cb10-43b8-83b4-a35e3cdf9ab0/justin/Workspace/ai-toolkit/datasets/minimaxh3/songHye/gold"
+          mask_path: null
+          mask_min_value: 0.1
+          default_caption: ""
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05    # Fizgig's default (old template: 0.00)
+          cache_latents_to_disk: true
+          is_reg: false
+          network_weight: 1
+          resolution:
+            - 512                       # yours, not fizgig's (it never touches datasets). A cap, never an upscale. One value: a list trains a copy per size
+          controls: []
+          shrink_video_to_frames: true
+          num_frames: 56
+          flip_x: false
+          flip_y: false
+          num_repeats: 1
+          do_i2v: false
+          do_audio: true
+          # model is fixed 24 fps / 17n+5 frames; auto_frame_count (+ default tail trim) keeps audio in sync
+          fps: 24
+          auto_frame_count: true
+      train:
+        # While model.model_kwargs.fizgig is true these are replaced (printed at startup):
+        # optimizer, lr, optimizer_params, max_grad_norm, timestep_type, content_or_style,
+        # ema_config. The values below are the stock ai-toolkit run used when it is false.
+        batch_size: 1
+        bypass_guidance_embedding: false
+        steps: 3000
+        gradient_accumulation: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: "flowmatch"
+        optimizer: "adamw8bit"
+        timestep_type: "shift"
+        content_or_style: "balanced"
+        optimizer_params:
+          weight_decay: 0.0001
+        unload_text_encoder: true
+        cache_text_embeddings: true
+        lr: 0.0001
+        ema_config:
+          use_ema: false
+          ema_decay: 0.99
+        skip_first_sample: true
+        force_first_sample: false
+        disable_sampling: true
+        dtype: "bf16"
+        diff_output_preservation: false
+        diff_output_preservation_multiplier: 1
+        diff_output_preservation_class: "person"
+        switch_boundary_every: 1
+        loss_type: "mse"
+        audio_loss_multiplier: 1
+      logging:
+        log_every: 1
+        use_ui_logger: true
+      model:
+        name_or_path: "Comfy-Org/MiniMax-H3"
+        quantize: true
+        qtype: "convrot8"
+        quantize_te: true
+        qtype_te: "nvfp4"
+        arch: "minimax_h3"
+        low_vram: true
+        model_kwargs:
+          # true: Fizgig's character recipe (blocks 20-49, Automagic v3 from 1e-6, EMA 0.98,
+          # 60% of steps below sigma 0.5, TREAD on clip steps, clip stills).
+          # false: the stock ai-toolkit MiniMax H3 training exactly as written in this file.
+          fizgig: true
+          # Optional Fizgig knobs, defaults shown (only read while fizgig is true, except
+          # train_lownoise_pct / tread / clip_stills, which also work on their own):
+          # train_blocks: "20-49"       # "6-49" = Fizgig's More Blocks mode (motion concepts)
+          # train_lownoise_pct: 60      # % of steps below sigma 0.5; 8 is about stock shift 12
+          # tread: "0.5@2-47"           # clip steps: half the video tokens skip blocks 2-46; false = off
+          # clip_stills: true           # each clip's sharpest face frame also trains as a photo
+        compile: false
+        layer_offloading: true
+        layer_offloading_text_encoder_percent: 1
+        layer_offloading_transformer_percent: 1
+        assistant_lora_path: "ostris/minimax_h3_training_adapter/minimax_h3_training_adapter_v3.safetensors"
+      sample:
+        sampler: "flowmatch"
+        sample_every: 250
+        sample_start_step: 0
+        width: 768
+        height: 768
+        samples:
+          - prompt: "woman with red hair, playing chess at the park, bomb going off in the background"
+        neg: ""
+        seed: 42
+        walk_seed: true
+        guidance_scale: 1
+        sample_steps: 28
+        num_frames: 107
+        fps: 24
+meta:
+  name: "[name]"
+  version: "1.0"

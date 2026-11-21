@@ -61,6 +61,19 @@ through a depth-4 ring buffer per forward. Consequences:
   `OstrisLinear: quantized weights found on cpu while the input is on cuda` once.
   Seeing that line means offloading did not attach and VRAM is about to blow up.
 
+**`model.model_kwargs.fizgig: true` (MiniMax H3) rewrites the config before it is
+parsed** — `toolkit/fizgig.py: apply_fizgig_recipe()`, first line of
+`BaseSDTrainProcess.__init__`. It overwrites `train.optimizer / lr / optimizer_params /
+max_grad_norm / timestep_type / content_or_style / ema_config` and
+`network_kwargs.only_if_contains` whatever the YAML says (each change prints under
+`Fizgig recipe`), so a YAML reading `adamw8bit` trains Automagic while it is on.
+`output/<job>/config.yaml` is the pre-rewrite YAML. Its model knobs
+(`train_lownoise_pct`, `tread`, `clip_stills`, `train_blocks`) are only defaulted, so
+YAML values win. An H3 log prints `create LoRA for U-Net` twice: 258 is the frozen
+training adapter, the second is the trainable LoRA (120 with fizgig, 208 stock).
+Clip stills live in `<dataset>/.clip_stills/` (dot folder, so the normal scan skips
+it); delete a `.png` there to re-pick that clip's still.
+
 **Writing a standalone probe script** that constructs a model outside the trainer:
 - `ModelConfig.vae_dtype` defaults to `ModelConfig.dtype`, *not* `train.dtype`.
   Omit it and the VAE runs fp16 against bf16 weights → `Input type (c10::Half) and

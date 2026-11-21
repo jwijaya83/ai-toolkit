@@ -131,6 +131,31 @@ FASTH3_OMNI_REPO = "FastVideo/FastH3-Omni-Comfy"
 ORIGINAL_REPO = "MiniMaxAI/MiniMax-H3"
 
 
+def lownoise_shift(pct) -> float:
+    """Train shift that puts ``pct`` % of training steps below sigma 0.5:
+    shift = (1 - p) / p (Fizgig's clean-end share; 60 -> 0.667)."""
+    p = float(pct) / 100.0
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"train_lownoise_pct must be between 0 and 100, got {pct}")
+    return (1.0 - p) / p
+
+
+def parse_tread(spec):
+    """'ratio@start-end' (e.g. '0.5@2-47': half the target video tokens skip
+    blocks 2-46 and rejoin unchanged) -> (ratio, start, end); falsy -> None."""
+    if not spec:
+        return None
+    try:
+        ratio, span = str(spec).split("@")
+        start, end = (int(x) for x in span.split("-"))
+        ratio = float(ratio)
+    except ValueError:
+        raise ValueError(f"model_kwargs.tread: can't read {spec!r}; use e.g. '0.5@2-47'")
+    if not (0.0 < ratio < 1.0 and 0 <= start < end):
+        raise ValueError(f"model_kwargs.tread: {spec!r} needs 0 < ratio < 1 and start < end")
+    return ratio, start, end
+
+
 def new_save_image_function(
     self: GenerateImageConfig, image, count=0, max_count=0, **kwargs
 ):
@@ -225,6 +250,10 @@ class MinimaxH3Model(BaseModel):
         self.max_text_length = int(
             self.model_config.model_kwargs.get("max_text_length", 512)
         )
+        # Fizgig knobs (toolkit/fizgig.py defaults them under model_kwargs.fizgig):
+        # TREAD token routing on clip steps, and clip stills (read by the dataloader)
+        self.tread = parse_tread(self.model_config.model_kwargs.get("tread"))
+        self.clip_stills = bool(self.model_config.model_kwargs.get("clip_stills", False))
 
     @classmethod
     def get_train_scheduler(cls):
@@ -595,6 +624,17 @@ class MinimaxH3Model(BaseModel):
         vae_bundle.to("cpu" if self.model_config.low_vram else self.vae_device_torch)
 
         self.noise_scheduler = self.get_train_scheduler()
+        pct = self.model_config.model_kwargs.get("train_lownoise_pct")
+        if pct is not None:
+            # training density only: sampling (build_sample_sigmas) and the audio
+            # remap stay on video_sigma_shift, and sigma is read back as t / 1000
+            if getattr(self.noise_scheduler, "fixed_train_sigmas", None) is not None:
+                raise ValueError(
+                    "train_lownoise_pct does not apply to a model trained on fixed sigmas"
+                )
+            self.noise_scheduler = CustomFlowMatchEulerDiscreteScheduler(
+                **{**scheduler_config, "shift": lownoise_shift(pct)}
+            )
         self.vae = vae_bundle
         self.text_encoder = text_encoder
         self.tokenizer = tokenizer
@@ -1003,6 +1043,18 @@ class MinimaxH3Model(BaseModel):
             if cond_rows is not None:
                 video_rows = torch.cat([cond_rows, video_rows], dim=1)
 
+        # TREAD (Fizgig): on a training forward of a clip, a random share of the
+        # target video rows skips blocks start..end-1 and rejoins unchanged.
+        # Photos and no-grad passes (samples, DOP / teacher priors) run in full.
+        tread = None
+        if self.tread is not None and t_lat > 1 and torch.is_grad_enabled():
+            ratio, start, end = self.tread
+            target = video_indices[num_cond:]  # the trailing target-video rows
+            n_keep = max(1, round(target.shape[0] * (1.0 - ratio)))
+            keep = torch.ones(token_tags.shape[1], dtype=torch.bool)
+            keep[target[torch.randperm(target.shape[0])[n_keep:]]] = False
+            tread = (start, end, keep.nonzero().squeeze(1).to(device))
+
         video_pred, audio_pred = self.model(
             hidden_states=video_rows,
             audio_hidden_states=audio_rows.to(dtype),
@@ -1016,6 +1068,7 @@ class MinimaxH3Model(BaseModel):
             # target-video token grid (patch 1x2x2); consumed only by VSA models
             vsa_video_grid=(t_lat, h_lat // 2, w_lat // 2),
             pdd_weights=self._pdd_weights(sigma_v),
+            tread=tread,
         )
 
         if num_cond_audio > 0:

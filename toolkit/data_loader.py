@@ -505,6 +505,12 @@ class AiToolkitDataset(LatentCachingMixin, ControlCachingMixin, CLIPCachingMixin
         # remove items in the _controls_ folder
         file_list = [x for x in file_list if not os.path.basename(os.path.dirname(x)) == "_controls"]
 
+        if getattr(self.sd, 'clip_stills', False) and self.is_video and caption_dict is None:
+            # each clip's sharpest face frame also trains as a photo (Fizgig's clip stills)
+            from toolkit.fizgig import add_clip_stills
+            videos = [x for x in file_list if x.lower().endswith(tuple(video_extensions))]
+            file_list += add_clip_stills(videos, dataset_path, dataset_config.caption_ext)
+
         if dataset_config.num_repeats > 1:
             # repeat the list
             file_list = file_list * dataset_config.num_repeats
